@@ -35,6 +35,7 @@ import android.os.ServiceManager;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.net.EthernetManager;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
@@ -83,7 +84,14 @@ final class EthernetTracker {
 
     private volatile IpConfiguration mIpConfigForDefaultInterface;
 
+    private EthernetManager mEthernetManager;
+
     EthernetTracker(Context context, Handler handler) {
+        mEthernetManager = (EthernetManager) context.getSystemService(Context.ETHERNET_SERVICE);
+        if (mEthernetManager == null) {
+            Log.e(TAG, "get ethernet manager failed");
+        }
+
         mHandler = handler;
 
         // The services we use.
@@ -252,12 +260,12 @@ final class EthernetTracker {
         }
     }
 
-    private void maybeTrackInterface(String iface) {
+    private boolean maybeTrackInterface(String iface) {
         if (DBG) Log.i(TAG, "maybeTrackInterface " + iface);
         // If we don't already track this interface, and if this interface matches
         // our regex, start tracking it.
         if (!iface.matches(mIfaceMatch) || mFactory.hasInterface(iface)) {
-            return;
+            return false;
         }
 
         if (mIpConfigForDefaultInterface != null) {
@@ -266,13 +274,52 @@ final class EthernetTracker {
         }
 
         addInterface(iface);
+        return true;
+    }
+
+    public boolean isEthernetInterfaceActive(){
+        if (mEthernetManager == null) {
+            return false;
+        } else {
+            IpAssignment mode = mEthernetManager.getConfiguration("eth0").getIpAssignment();
+            if (mode == IpAssignment.DHCP || mode == IpAssignment.UNASSIGNED) {
+                Log.e(TAG, "ethernet manager mode is DHCP or UNASSIGNED");
+                return false;
+            } else {
+                Log.e(TAG, "ethernet manager mode is StaticIP");
+                return true;
+            }
+        }
     }
 
     private void trackAvailableInterfaces() {
         try {
             final String[] ifaces = mNMService.listInterfaces();
             for (String iface : ifaces) {
-                maybeTrackInterface(iface);
+                if (maybeTrackInterface(iface)) {
+                    String mIfaceTmp = iface;
+                    new Thread(new Runnable() {
+                        public void run() {
+                            // carrier is always 1 when kernel boot up no matter RJ45 plugin or not,
+                            // sleep a little time to wait kernel's correct carrier status
+                            try {
+                                Thread.sleep(3000);
+                            } catch (InterruptedException ignore) {
+                            }
+                            if(isEthernetInterfaceActive()){
+                                IpConfiguration config = getIpConfiguration(mIfaceTmp);
+                                if(config != null && IpAssignment.STATIC == config.getIpAssignment())
+                                {
+                                    updateInterfaceState(mIfaceTmp, false);
+                                    updateInterfaceState(mIfaceTmp, true);
+                                }
+                            } else{
+                                 maybeTrackInterface(iface);
+                            }
+                        }
+                    }).start();
+                    break;
+                }
             }
         } catch (RemoteException | IllegalStateException e) {
             Log.e(TAG, "Could not get list of interfaces " + e);
