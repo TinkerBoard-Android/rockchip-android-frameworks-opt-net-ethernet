@@ -37,6 +37,7 @@ import android.os.INetworkManagementService;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -427,11 +428,33 @@ final class EthernetTracker {
         addInterface(iface);
     }
 
+    private void setHwMacAddressProperties(String iface) {
+        InterfaceConfiguration config = null;
+        if ("eth0".equals(iface)) {
+            try {
+                config = mNMService.getInterfaceConfig(iface);
+                final String hwAddress = config.getHardwareAddress();
+                SystemProperties.set("persists.hw.mac.eth0", hwAddress);
+            } catch (RemoteException | IllegalStateException e) {
+                Log.e(TAG, "Error getting interface " + iface, e);
+            }
+        } else if ("wlan0".equals(iface)) {
+            try {
+                config = mNMService.getInterfaceConfig(iface);
+                final String hwAddress = config.getHardwareAddress();
+                SystemProperties.set("persists.hw.mac.wlan0", hwAddress);
+            } catch (RemoteException | IllegalStateException e) {
+                Log.e(TAG, "Error getting interface " + iface, e);
+            }
+        }
+    }
+
     private void trackAvailableInterfaces() {
         try {
             final String[] ifaces = mNMService.listInterfaces();
             for (String iface : ifaces) {
                 maybeTrackInterface(iface);
+                setHwMacAddressProperties(iface);
             }
         } catch (RemoteException | IllegalStateException e) {
             Log.e(TAG, "Could not get list of interfaces " + e);
