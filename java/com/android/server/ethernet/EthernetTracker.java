@@ -31,6 +31,7 @@ import android.net.LinkAddress;
 import android.net.NetworkCapabilities;
 import android.net.NetworkStack;
 import android.net.StaticIpConfiguration;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.INetworkManagementService;
@@ -454,7 +455,9 @@ final class EthernetTracker {
             final String[] ifaces = mNMService.listInterfaces();
             for (String iface : ifaces) {
                 maybeTrackInterface(iface);
-                setHwMacAddressProperties(iface);
+                if ("Tinker_Board_2".equals(Build.DEVICE) &&
+                        (SystemProperties.getInt("ro.debuggable", 0) == 1))
+                    setHwMacAddressProperties(iface);
             }
         } catch (RemoteException | IllegalStateException e) {
             Log.e(TAG, "Could not get list of interfaces " + e);
